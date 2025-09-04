@@ -16,16 +16,31 @@ var chunk_scene = preload("res://world/chunk.tscn")
 # Track player's current chunk
 var current_player_chunk := Vector2()
 
+# Add to world_manager.gd
+func position_player_above_terrain():
+	if not player:
+		return
+	
+	# Get the height at the player's position
+	var player_pos = player.global_position
+	var terrain_height = get_terrain_height(player_pos.x, player_pos.z)
+	
+	# Position the player above the terrain
+	player.global_position.y = terrain_height + 2.0  # 2 units above the terrain
+
+func get_terrain_height(x: float, z: float) -> float:
+	# Sample the noise at the given position
+	return noise.get_noise_2d(x, z) * terrain_height
+
+# Call this after generating chunks in _ready()
 func _ready():
-	# Set up the noise generator
 	setup_noise()
-	
-	# Find the player
 	find_player()
-	
-	# Generate initial chunks
 	if player:
 		update_chunks()
+		# Wait a frame for chunks to generate, then position player
+		await get_tree().process_frame
+		position_player_above_terrain()
 
 func _process(_delta):
 	# Only update chunks if player has moved to a new chunk
@@ -35,7 +50,15 @@ func _process(_delta):
 			current_player_chunk = player_chunk
 			update_chunks()
 
-
+func setup_noise():
+	# Create and configure the noise generator
+	noise = FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_PERLIN
+	noise.seed = randi()
+	noise.frequency = 0.01  # Lower frequency for larger, smoother features
+	noise.fractal_octaves = 2  # Fewer octaves for less detail
+	noise.fractal_gain = 0.5
+	noise.fractal_lacunarity = 2.0
 
 func find_player():
 	# Look for the player node
@@ -92,12 +115,3 @@ func unload_chunk(chunk_coord: Vector2):
 	loaded_chunks.erase(chunk_coord)
 	
 	print("Unloaded chunk: ", chunk_coord.x, ", ", chunk_coord.y)
-
-# Function to get the height at a specific world position
-func get_height_at_position(world_pos: Vector3) -> float:
-	var chunk_coord = get_chunk_coords(world_pos)
-	if loaded_chunks.has(chunk_coord):
-		return loaded_chunks[chunk_coord].get_height_at_local_position(
-			Vector2(world_pos.x - chunk_coord.x * chunk_size, 
-				   world_pos.z - chunk_coord.y * chunk_size))
-	return 0.0

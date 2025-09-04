@@ -6,19 +6,17 @@
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_nvxhs"]
 
-[node name="Player" type="Node3D" groups=["player"]]
-
-[node name="CharacterBody" type="CharacterBody3D" parent="."]
+[node name="Player" type="CharacterBody3D" groups=["player"]]
 script = ExtResource("1_nvxhs")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="CharacterBody"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 mesh = SubResource("CapsuleMesh_6uhly")
-skeleton = NodePath("../..")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="CharacterBody"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("CapsuleShape3D_nvxhs")
 
-[node name="CameraPivot" type="Node3D" parent="CharacterBody"]
+[node name="CameraPivot" type="Node3D" parent="."]
 
-[node name="Camera3D" type="Camera3D" parent="CharacterBody/CameraPivot"]
+[node name="Camera3D" type="Camera3D" parent="CameraPivot"]
 transform = Transform3D(1, 0, 0, 0, 0.951568, 0.30744, 0, -0.30744, 0.951568, 0, 0.693138, 2.41648)
+current = true

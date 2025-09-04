@@ -1,36 +1,117 @@
 extends StaticBody3D
 
+# Node references
+@onready var mesh_instance: MeshInstance3D = $MeshInstance3D
+@onready var collision_shape: CollisionShape3D = $CollisionShape3D
+
+# Chunk data
 var chunk_coord: Vector2
 var chunk_size: int
-var terrain_height: int
 var noise: FastNoiseLite
+var max_height: float
 
-func initialize(coord: Vector2, size: int, noise_ref: FastNoiseLite, height: int):
-	chunk_coord = coord
+func initialize(x: int, z: int, size: int, noise_ref: FastNoiseLite, height: float):
+	chunk_coord = Vector2(x, z)
 	chunk_size = size
 	noise = noise_ref
-	terrain_height = height
+	max_height = height
+	
+	# Position the chunk in the world
+	position = Vector3(x * size, 0, z * size)
+	
+	# Generate the terrain
 	generate_terrain()
 
 func generate_terrain():
-	# Create a mesh for this chunk
-	var plane_mesh = PlaneMesh.new()
-	plane_mesh.size = Vector2(chunk_size, chunk_size)
-	plane_mesh.subdivide_width = chunk_size / 2
-	plane_mesh.subdivide_depth = chunk_size / 2
+	# Create a subdivided plane for more detail
+	var subdivisions = 8  # You can adjust this for more/less detail
+	var vertices = []
+	var indices = []
 	
-	# Create a mesh instance
-	var mesh_instance = MeshInstance3D.new()
-	mesh_instance.mesh = plane_mesh
+	# Generate vertices with height from noise
+	for z in range(subdivisions + 1):
+		for x in range(subdivisions + 1):
+			# Calculate local position within chunk
+			var local_x = (x / float(subdivisions)) * chunk_size - chunk_size / 2.0
+			var local_z = (z / float(subdivisions)) * chunk_size - chunk_size / 2.0
+			
+			# Calculate world position for noise sampling
+			var world_x = position.x + local_x
+			var world_z = position.z + local_z
+			
+			# Get height from noise
+			var height = noise.get_noise_2d(world_x, world_z) * max_height
+			
+			# Add vertex
+			vertices.append(Vector3(local_x, height, local_z))
 	
-	# Position the chunk correctly
-	global_position = Vector3(chunk_coord.x * chunk_size, 0, chunk_coord.y * chunk_size)
+	# Generate indices for triangles
+	for z in range(subdivisions):
+		for x in range(subdivisions):
+			# Calculate indices for the current quad
+			var top_left = z * (subdivisions + 1) + x
+			var top_right = top_left + 1
+			var bottom_left = (z + 1) * (subdivisions + 1) + x
+			var bottom_right = bottom_left + 1
+			
+			# Add first triangle
+			indices.append(top_left)
+			indices.append(bottom_left)
+			indices.append(top_right)
+			
+			# Add second triangle
+			indices.append(top_right)
+			indices.append(bottom_left)
+			indices.append(bottom_right)
 	
-	# Generate height data using noise
+	# Create the mesh
+	var array_mesh = ArrayMesh.new()
 	var surface_tool = SurfaceTool.new()
-	surface_tool.create_from(mesh_instance.mesh, 0)
 	
-	# This is where you'd modify vertices based on noise
-	# You'll need to implement vertex displacement here
+	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	
-	add_child(mesh_instance)
+	# Add all vertices
+	for vertex in vertices:
+		surface_tool.add_vertex(vertex)
+	
+	# Add all indices
+	for index in indices:
+		surface_tool.add_index(index)
+	
+	# Generate normals for proper lighting
+	surface_tool.generate_normals()
+	
+	# Create the final mesh
+	array_mesh = surface_tool.commit()
+	mesh_instance.mesh = array_mesh
+	
+	# Create collision shape
+	create_collision_shape()
+
+# In chunk.gd, replace the create_collision_shape() function
+func create_collision_shape():
+	# Create a heightmap-based collision shape
+	var heightmap_shape = HeightMapShape3D.new()
+	
+	# Create height data for the collision shape
+	var width = 8  # Should match your subdivisions + 1
+	var depth = 8
+	var heightmap_data = PackedFloat32Array()
+	
+	# Generate height data
+	for z in range(depth):
+		for x in range(width):
+			var local_x = (x / float(width-1)) * chunk_size - chunk_size / 2.0
+			var local_z = (z / float(depth-1)) * chunk_size - chunk_size / 2.0
+			var world_x = position.x + local_x
+			var world_z = position.z + local_z
+			var height = noise.get_noise_2d(world_x, world_z) * max_height
+			heightmap_data.append(height)
+	
+	# Set the heightmap data
+	heightmap_shape.map_width = width
+	heightmap_shape.map_depth = depth
+	heightmap_shape.map_data = heightmap_data
+	
+	# Apply the collision shape
+	collision_shape.shape = heightmap_shape
