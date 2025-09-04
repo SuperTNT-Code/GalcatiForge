@@ -1,103 +1,54 @@
+# world.gd (attach this to your root world node)
 extends Node3D
 
-# Configuration - adjust these in the Inspector
-@export var chunk_size := 16
-@export var view_distance := 3  # Creates a 7×7 grid (view_distance*2 + 1)
-@export var terrain_height := 10.0
-@export var noise_frequency := 0.05
-@export var noise_octaves := 4
-
-# References
-var player: CharacterBody3D
-var noise: FastNoiseLite
-var loaded_chunks := {}
-var chunk_scene = preload("res://world/chunk.tscn")
-
-# Track player's current chunk
-var current_player_chunk := Vector2()
+@onready var world_manager = $WorldManager
+@onready var player = $Player
 
 func _ready():
-	# Set up the noise generator
-	setup_noise()
+	# Wait for the first frame to ensure everything is loaded
+	await get_tree().process_frame
 	
-	# Find the player
-	find_player()
-	
-	# Generate initial chunks
-	if player:
-		update_chunks()
+	# Position the player above the terrain
+	position_player_above_terrain()
 
-func _process(_delta):
-	# Only update chunks if player has moved to a new chunk
-	if player:
-		var player_chunk = get_chunk_coords(player.global_position)
-		if player_chunk != current_player_chunk:
-			current_player_chunk = player_chunk
-			update_chunks()
-
-
-
-func find_player():
-	# Look for the player node
-	player = get_tree().get_first_node_in_group("player")
+func position_player_above_terrain():
 	if not player:
-		print("WorldManager: No player found in group 'player'")
+		return
+		
+	# Get the player's XZ position
+	var player_x = player.global_position.x
+	var player_z = player.global_position.z
+	
+	# Get the terrain height at this position
+	var terrain_height = get_terrain_height(player_x, player_z)
+	
+	# Position the player above the terrain
+	player.global_position.y = terrain_height + 2.0  # 2 units above terrain
+	
+	print("Player positioned at height: ", terrain_height + 2.0)
 
-func update_chunks():
-	# Get player's current chunk position
-	var player_chunk = get_chunk_coords(player.global_position)
+func get_terrain_height(x: float, z: float) -> float:
+	# Use the same noise function as the terrain generation
+	# to ensure consistency
+	var base_height = world_manager.noise.get_noise_2d(x, z) * world_manager.terrain_height
 	
-	# Determine which chunks should be loaded
-	var chunks_to_keep = {}
+	# Apply the same biome adjustments as the terrain
+	var biome_value = world_manager.biome_noise.get_noise_2d(x, z)
+	var temp_value = world_manager.temperature_noise.get_noise_2d(x, z)
+	var moisture_value = world_manager.moisture_noise.get_noise_2d(x, z)
 	
-	# Create chunks in a grid around the player
-	for x in range(player_chunk.x - view_distance, player_chunk.x + view_distance + 1):
-		for z in range(player_chunk.y - view_distance, player_chunk.y + view_distance + 1):
-			var chunk_coord = Vector2(x, z)
-			chunks_to_keep[chunk_coord] = true
-			
-			# Load chunk if it doesn't exist
-			if not loaded_chunks.has(chunk_coord):
-				load_chunk(x, z)
-	
-	# Unload chunks that are too far away
-	for chunk_coord in loaded_chunks.keys():
-		if not chunks_to_keep.has(chunk_coord):
-			unload_chunk(chunk_coord)
+	# Use the same height adjustment function as the chunks
+	return adjust_height_by_biome(base_height, biome_value, temp_value, moisture_value)
 
-func get_chunk_coords(world_position: Vector3) -> Vector2:
-	# Convert world position to chunk coordinates
-	var x = floor(world_position.x / chunk_size)
-	var z = floor(world_position.z / chunk_size)
-	return Vector2(x, z)
-
-func load_chunk(x: int, z: int):
-	# Create a new chunk instance
-	var new_chunk = chunk_scene.instantiate()
-	add_child(new_chunk)
-	
-	# Initialize the chunk with position and noise
-	new_chunk.initialize(x, z, chunk_size, noise, terrain_height)
-	
-	# Store reference to the chunk
-	loaded_chunks[Vector2(x, z)] = new_chunk
-	
-	print("Loaded chunk: ", x, ", ", z)
-
-func unload_chunk(chunk_coord: Vector2):
-	# Remove a chunk from the world
-	var chunk = loaded_chunks[chunk_coord]
-	if chunk:
-		chunk.queue_free()
-	loaded_chunks.erase(chunk_coord)
-	
-	print("Unloaded chunk: ", chunk_coord.x, ", ", chunk_coord.y)
-
-# Function to get the height at a specific world position
-func get_height_at_position(world_pos: Vector3) -> float:
-	var chunk_coord = get_chunk_coords(world_pos)
-	if loaded_chunks.has(chunk_coord):
-		return loaded_chunks[chunk_coord].get_height_at_local_position(
-			Vector2(world_pos.x - chunk_coord.x * chunk_size, 
-				   world_pos.z - chunk_coord.y * chunk_size))
-	return 0.0
+func adjust_height_by_biome(base_height: float, biome: float, temperature: float, moisture: float) -> float:
+	# This should match the function in your chunk script
+	if biome > 0.6:
+		return base_height * 1.8 + (temperature * 0.7 * world_manager.terrain_height)
+	elif biome > 0.3:
+		return base_height * 1.2 + (temperature * 0.4 * world_manager.terrain_height)
+	elif biome < -0.6:
+		return base_height * 0.2 + (moisture * 0.1 * world_manager.terrain_height) - 5.0
+	elif biome < -0.3:
+		return base_height * 0.4 + (moisture * 0.2 * world_manager.terrain_height) - 2.0
+	else:
+		return base_height * 0.5 + (moisture * 0.3 * world_manager.terrain_height)

@@ -8,12 +8,20 @@ extends StaticBody3D
 var chunk_coord: Vector2
 var chunk_size: int
 var noise: FastNoiseLite
+var biome_noise: FastNoiseLite
+var temperature_noise: FastNoiseLite
+var moisture_noise: FastNoiseLite
 var max_height: float
 
-func initialize(x: int, z: int, size: int, noise_ref: FastNoiseLite, height: float):
+func initialize(x: int, z: int, size: int, noise_ref: FastNoiseLite, 
+			   biome_noise_ref: FastNoiseLite, temp_noise_ref: FastNoiseLite, 
+			   moisture_noise_ref: FastNoiseLite, height: float):
 	chunk_coord = Vector2(x, z)
 	chunk_size = size
 	noise = noise_ref
+	biome_noise = biome_noise_ref
+	temperature_noise = temp_noise_ref
+	moisture_noise = moisture_noise_ref
 	max_height = height
 	
 	# Position the chunk in the world
@@ -24,11 +32,11 @@ func initialize(x: int, z: int, size: int, noise_ref: FastNoiseLite, height: flo
 
 func generate_terrain():
 	# Create a subdivided plane for more detail
-	var subdivisions = 8  # You can adjust this for more/less detail
+	var subdivisions = 8
 	var vertices = []
 	var indices = []
 	
-	# Generate vertices with height from noise
+	# Generate vertices with height from noise and biomes
 	for z in range(subdivisions + 1):
 		for x in range(subdivisions + 1):
 			# Calculate local position within chunk
@@ -39,8 +47,16 @@ func generate_terrain():
 			var world_x = position.x + local_x
 			var world_z = position.z + local_z
 			
-			# Get height from noise
-			var height = noise.get_noise_2d(world_x, world_z) * max_height
+			# Get base height from noise
+			var base_height = noise.get_noise_2d(world_x, world_z) * max_height
+			
+			# Get biome information
+			var biome_value = biome_noise.get_noise_2d(world_x, world_z)
+			var temp_value = temperature_noise.get_noise_2d(world_x, world_z)
+			var moisture_value = moisture_noise.get_noise_2d(world_x, world_z)
+			
+			# Adjust height based on biome
+			var height = adjust_height_by_biome(base_height, biome_value, temp_value, moisture_value)
 			
 			# Add vertex
 			vertices.append(Vector3(local_x, height, local_z))
@@ -88,24 +104,38 @@ func generate_terrain():
 	# Create collision shape
 	create_collision_shape()
 
-# In chunk.gd, replace the create_collision_shape() function
 func create_collision_shape():
-	# Create a heightmap-based collision shape
+	# Create a heightmap shape for accurate collision
 	var heightmap_shape = HeightMapShape3D.new()
 	
-	# Create height data for the collision shape
-	var width = 8  # Should match your subdivisions + 1
-	var depth = 8
+	# We need to create height data for the collision shape
+	var width = 9  # Should match your subdivisions + 1
+	var depth = 9
 	var heightmap_data = PackedFloat32Array()
 	
-	# Generate height data
+	# Generate height data using the same method as the terrain
 	for z in range(depth):
 		for x in range(width):
+			# Calculate local position within chunk
 			var local_x = (x / float(width-1)) * chunk_size - chunk_size / 2.0
 			var local_z = (z / float(depth-1)) * chunk_size - chunk_size / 2.0
+			
+			# Calculate world position for noise sampling
 			var world_x = position.x + local_x
 			var world_z = position.z + local_z
-			var height = noise.get_noise_2d(world_x, world_z) * max_height
+			
+			# Get base height from noise
+			var base_height = noise.get_noise_2d(world_x, world_z) * max_height
+			
+			# Get biome information
+			var biome_value = biome_noise.get_noise_2d(world_x, world_z)
+			var temp_value = temperature_noise.get_noise_2d(world_x, world_z)
+			var moisture_value = moisture_noise.get_noise_2d(world_x, world_z)
+			
+			# Adjust height based on biome
+			var height = adjust_height_by_biome(base_height, biome_value, temp_value, moisture_value)
+			
+			# Add to heightmap data
 			heightmap_data.append(height)
 	
 	# Set the heightmap data
@@ -115,3 +145,22 @@ func create_collision_shape():
 	
 	# Apply the collision shape
 	collision_shape.shape = heightmap_shape
+	collision_shape.position = Vector3(0, 0, 0)  # Center the collision
+
+func adjust_height_by_biome(base_height: float, biome: float, temperature: float, moisture: float) -> float:
+	# Simple biome-based height adjustments
+	if biome > 0.6:
+		# Mountain biome - higher and more varied
+		return base_height * 1.8 + (temperature * 0.7 * max_height)
+	elif biome > 0.3:
+		# Hills biome - moderate height
+		return base_height * 1.2 + (temperature * 0.4 * max_height)
+	elif biome < -0.6:
+		# Deep ocean biome - very low
+		return base_height * 0.2 + (moisture * 0.1 * max_height) - 5.0
+	elif biome < -0.3:
+		# Shallow water biome - low
+		return base_height * 0.4 + (moisture * 0.2 * max_height) - 2.0
+	else:
+		# Plains biome - mostly flat with slight variations
+		return base_height * 0.5 + (moisture * 0.3 * max_height)
