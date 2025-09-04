@@ -6,7 +6,7 @@
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_nvxhs"]
 
-[node name="Player" type="Node3D"]
+[node name="Player" type="Node3D" groups=["player"]]
 
 [node name="CharacterBody" type="CharacterBody3D" parent="."]
 script = ExtResource("1_nvxhs")
