@@ -1,12 +1,87 @@
-[gd_scene load_steps=4 format=3 uid="uid://d1kirwe2rc3df"]
+[gd_scene load_steps=3 format=3 uid="uid://d1kirwe2rc3df"]
 
-[ext_resource type="Script" uid="uid://bmj21jsiyvwkj" path="res://world/world.gd" id="1_4f7fj"]
 [ext_resource type="PackedScene" uid="uid://60hdu1t7ptef" path="res://actors/player/player.tscn" id="2_4f7fj"]
-[ext_resource type="PackedScene" uid="uid://b8315h2wrm0p5" path="res://world/worldManager.tscn" id="2_hyim0"]
+
+[sub_resource type="GDScript" id="GDScript_gjxf3"]
+script/source = "extends Node3D
+
+@onready var world_manager = $WorldManager
+@onready var player = $Player
+
+func _ready():
+	# Wait for the world manager to load initial chunks
+	await get_tree().create_timer(1.0).timeout
+	
+	# Position the player above the terrain
+	position_player_above_terrain()
+	
+	# Enable player physics after positioning
+	player.set_physics_process(true)
+
+func position_player_above_terrain():
+	if not player:
+		return
+		
+	# Try multiple positions to find a valid spawn point
+	var spawn_points = [
+		Vector2(0, 0),
+		Vector2(5, 0),
+		Vector2(0, 5),
+		Vector2(-5, 0),
+		Vector2(0, -5)
+	]
+	
+	for point in spawn_points:
+		var player_x = point.x
+		var player_z = point.y
+		
+		# Get the terrain height at this position
+		var terrain_height = get_terrain_height(player_x, player_z)
+		
+		if terrain_height > -10:  # Avoid spawning in deep water
+			# Position the player above the terrain
+			player.global_position = Vector3(player_x, terrain_height + 2.0, player_z)
+			
+			# Ensure the player is on the floor after positioning
+			player.velocity.y = 0
+			player.move_and_slide()
+			
+			print(\"Player positioned at: \", player.global_position)
+			return
+	
+	# Fallback to default position if no valid spawn found
+	player.global_position = Vector3(0, 10, 0)
+	print(\"Using fallback spawn position\")
+
+
+func get_terrain_height(x: float, z: float) -> float:
+	# Use the same noise function as the terrain generation
+	# to ensure consistency
+	var base_height = world_manager.noise.get_noise_2d(x, z) * world_manager.terrain_height
+	
+	# Apply the same biome adjustments as the terrain
+	var biome_value = world_manager.biome_noise.get_noise_2d(x, z)
+	var temp_value = world_manager.temperature_noise.get_noise_2d(x, z)
+	var moisture_value = world_manager.moisture_noise.get_noise_2d(x, z)
+	
+	# Use the same height adjustment function as the chunks
+	return adjust_height_by_biome(base_height, biome_value, temp_value, moisture_value)
+
+func adjust_height_by_biome(base_height: float, biome: float, temperature: float, moisture: float) -> float:
+	# This should match the function in your chunk script
+	if biome > 0.6:
+		return base_height * 1.8 + (temperature * 0.7 * world_manager.terrain_height)
+	elif biome > 0.3:
+		return base_height * 1.2 + (temperature * 0.4 * world_manager.terrain_height)
+	elif biome < -0.6:
+		return base_height * 0.2 + (moisture * 0.1 * world_manager.terrain_height) - 5.0
+	elif biome < -0.3:
+		return base_height * 0.4 + (moisture * 0.2 * world_manager.terrain_height) - 2.0
+	else:
+		return base_height * 0.5 + (moisture * 0.3 * world_manager.terrain_height)
+"
 
 [node name="World" type="Node3D"]
-script = ExtResource("1_4f7fj")
-
-[node name="WorldManager" parent="." instance=ExtResource("2_hyim0")]
+script = SubResource("GDScript_gjxf3")
 
 [node name="Player" parent="." instance=ExtResource("2_4f7fj")]

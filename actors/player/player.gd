@@ -1,69 +1,81 @@
 extends CharacterBody3D
 
-# Player movement properties
-@export var move_speed: float = 5.0
-@export var jump_force: float = 4.5
-@export var acceleration: float = 10.0 # How quickly the player gets to full speed
-@export var air_acceleration: float = 2.0  # Slower acceleration in the air
-@export var gravity: float = 9.8
+@export_group("Movement Settings")
+@export var walk_speed := 5.0
+@export var sprint_speed := 8.0
+@export var jump_velocity := 4.5
+@export var acceleration := 10.0
+@export var air_control := 0.3
+@export var backwards_speed_multiplier := 0.7
 
-# Camera control properties
-@export var camera_sensitivity: float = 0.003
-@export var camera_pitch_max_degrees: float = 60.0
-@export var camera_pitch_min_degrees: float = -70.0
+@export_group("Camera Settings")
+@export_range(0.0, 1.0) var mouse_sensitivity := 0.18
 
-# Node References
-# The CameraPivot should be a child of this CharacterBody3D
-@onready var camera_pivot: Node3D = $CameraPivot
+# Get the gravity from the project settings to be synced with RigidBody nodes
+var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 
-# Camera rotation state
-var camera_pitch: float = 0.0 # Vertical look (up/down)
+var _camera_input_direction := Vector2.ZERO
+var _current_speed := walk_speed
 
-func _ready():
-	# Capture the mouse so it's not visible and is locked to the center of the window
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+@onready var _camera_pivot: Node3D = $CameraPivot
 
-func _input(event):
-	# Handle mouse look
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("left_click"):
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if event.is_action_pressed("ui_cancel"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Check for mouse motion events when mouse is captured
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		# Rotate the entire player body left/right (yaw)
-		rotate_y(-event.relative.x * camera_sensitivity)
-		
-		# Adjust camera pitch (up/down)
-		camera_pitch -= event.relative.y * camera_sensitivity
-		# Clamp the vertical look to avoid flipping the camera
-		camera_pitch = clamp(camera_pitch, deg_to_rad(camera_pitch_min_degrees), deg_to_rad(camera_pitch_max_degrees))
-		
-		# Apply the pitch rotation only to the camera pivot
-		camera_pivot.rotation.x = camera_pitch
+		_camera_input_direction = event.relative * mouse_sensitivity
 
-func _physics_process(delta):
-	# --- Gravity ---
+func _physics_process(delta: float) -> void:
+	# Handle camera rotation (only rotate camera, not the character)
+	_camera_pivot.rotation.x += _camera_input_direction.y * delta
+	_camera_pivot.rotation.x = clamp(_camera_pivot.rotation.x, -PI/2.0, PI/2.0)
+	_camera_pivot.rotation.y -= _camera_input_direction.x * delta
+	
+	# Reset camera input
+	_camera_input_direction = Vector2.ZERO
+	
+	# Handle sprint
+	_current_speed = sprint_speed if Input.is_action_pressed("sprint") else walk_speed
+	
+	# Add the gravity
 	if not is_on_floor():
 		velocity.y -= gravity * delta
-		
-	# --- Jumping ---
+
+	# Handle Jump
 	if Input.is_action_just_pressed("jump") and is_on_floor():
-		velocity.y = jump_force
-	
-	# --- Movement ---
-	# Get player input for movement
+		velocity.y = jump_velocity
+
+	# Get the input direction
 	var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	
-	# Use the CharacterBody's own transform basis to get the correct world direction
-	var direction = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	# Calculate movement direction relative to character's orientation (not camera)
+	var direction = Vector3.ZERO
+	direction = transform.basis.z * input_dir.y  # Forward/backward
+	direction += transform.basis.x * input_dir.x  # Left/right
+	direction.y = 0
+	direction = direction.normalized()
 	
-	# Choose acceleration based on whether we are on the ground or in the air
-	var current_accel = acceleration if is_on_floor() else air_acceleration
+	# Calculate effective speed (slower when moving backwards)
+	var effective_speed = _current_speed
 	
-	# Create a target velocity
-	var target_velocity = direction * move_speed
+	# Check if we're moving backwards (negative input on the forward/back axis)
+	if input_dir.y < 0:  # Negative y means moving backwards
+		effective_speed *= backwards_speed_multiplier
 	
-	# Use lerp (linear interpolation) for smooth acceleration and deceleration
-	# We only want to affect the horizontal (x, z) plane
-	velocity.x = lerp(velocity.x, target_velocity.x, current_accel * delta)
-	velocity.z = lerp(velocity.z, target_velocity.z, current_accel * delta)
+	# Apply movement
+	if direction:
+		var control = acceleration if is_on_floor() else acceleration * air_control
+		velocity.x = move_toward(velocity.x, direction.x * effective_speed, control)
+		velocity.z = move_toward(velocity.z, direction.z * effective_speed, control)
+	else:
+		# Apply friction when not moving
+		var friction = acceleration if is_on_floor() else acceleration * air_control
+		velocity.x = move_toward(velocity.x, 0, friction)
+		velocity.z = move_toward(velocity.z, 0, friction)
 	
-	# --- Finalize Movement ---
-	# This function applies the velocity and handles collisions
 	move_and_slide()
